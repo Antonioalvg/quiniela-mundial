@@ -362,7 +362,7 @@ async function joinByCode(){
 async function enterSala(code){
   const rows=await sbSel('salas',`code=eq.${code}&select=code,name`);
   if(!rows[0]){toast('Sala no encontrada');return;}
-  const parts=await sbSel('participants',`sala_code=eq.${code}&select=id,name&order=created_at.asc`);
+  const parts=await sbSel('participants',`sala_code=eq.${code}&select=id,name,pin&order=created_at.asc`);
   SALA={code:rows[0].code, name:rows[0].name, participants:parts};
   $('#salaChip').style.display='inline-flex';
   pickParticipant();
@@ -374,20 +374,39 @@ function pickParticipant(){
       <div class="code" style="font-family:'Anton';color:var(--gold);font-size:13px">SALA ${SALA.code}</div>
       <h2 class="section" style="margin-top:4px">${escapeHtml(SALA.name)}</h2>
       ${SALA.participants.length?`<label class="fld">Ya estoy registrado</label>
-        <div class="row" style="align-items:stretch"><select id="meSel" style="flex:1">${opts}</select>
-        <button class="btn gold" onclick="setMe($('#meSel').value)">Continuar</button></div><div class="hr"></div>`:''}
+        <select id="meSel" style="margin-bottom:8px">${opts}</select>
+        <div class="row" style="align-items:stretch">
+          <input id="mePin" inputmode="numeric" maxlength="4" placeholder="Tu PIN (4 dígitos)" style="flex:1">
+          <button class="btn gold" onclick="enterAsExisting()">Continuar</button></div>
+        <div class="hr"></div>`:''}
       <label class="fld">Soy nuevo aquí</label>
-      <div class="row" style="align-items:stretch"><input id="newName" placeholder="Tu nombre" style="flex:1">
+      <input id="newName" placeholder="Tu nombre" style="margin-bottom:8px">
+      <div class="row" style="align-items:stretch">
+        <input id="newPin" inputmode="numeric" maxlength="4" placeholder="Elige un PIN (4 dígitos)" style="flex:1">
         <button class="btn" onclick="addMe()">Unirme</button></div>
+      <div class="tiny muted" style="margin-top:8px">Tu PIN protege tus pronósticos: nadie más podrá moverlos. Apúntalo.</div>
       <div class="hr"></div>
       <div class="row" style="justify-content:space-between;align-items:center">
         <span class="muted tiny">${SALA.participants.length} participante(s)</span></div>
     </div>`;
 }
+async function enterAsExisting(){
+  const id=$('#meSel').value, pin=$('#mePin').value.trim();
+  const p=SALA.participants.find(x=>x.id===id); if(!p){toast('Selecciona tu nombre');return;}
+  if(!/^\d{4}$/.test(pin)){toast('PIN de 4 dígitos');return;}
+  if(p.pin){ if(p.pin!==pin){toast('PIN incorrecto');return;} }
+  else { // sin PIN previo (registrado antes): lo fija ahora
+    try{ await sbPatch('participants',`id=eq.${id}`,{pin}); p.pin=pin; }
+    catch(e){ toast('Error al fijar PIN'); console.error(e); return; }
+  }
+  setMe(id);
+}
 async function addMe(){
-  const name=$('#newName').value.trim(); if(!name){toast('Escribe tu nombre');return;}
+  const name=$('#newName').value.trim(), pin=$('#newPin').value.trim();
+  if(!name){toast('Escribe tu nombre');return;}
+  if(!/^\d{4}$/.test(pin)){toast('Elige un PIN de 4 dígitos');return;}
   const id=genId();
-  try{ await sbUpsert('participants',{id,sala_code:SALA.code,name}); SALA.participants.push({id,name}); setMe(id); }
+  try{ await sbUpsert('participants',{id,sala_code:SALA.code,name,pin}); SALA.participants.push({id,name,pin}); setMe(id); }
   catch(e){ toast('Error al unirse'); console.error(e); }
 }
 async function setMe(id){
