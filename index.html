@@ -123,8 +123,8 @@
    CONFIG — PEGA AQUÍ TUS DATOS DE SUPABASE
    (Project Settings → API)
    ============================================================ */
-const SB_URL = "https://ltqcykcsmpsaxzfrypmr.supabase.co";   // <-- CAMBIA ESTO
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0cWN5a2NzbXBzYXh6ZnJ5cG1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NDM1NzMsImV4cCI6MjA5NjAxOTU3M30.6yjzArRB9zCSp8hQ3-DZbMWu5jUS3Ku0451hCAf508w";                         // <-- CAMBIA ESTO
+const SB_URL = "https://ltqcykcsmpsaxzfrypmr.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0cWN5a2NzbXBzYXh6ZnJ5cG1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NDM1NzMsImV4cCI6MjA5NjAxOTU3M30.6yjzArRB9zCSp8hQ3-DZbMWu5jUS3Ku0451hCAf508w";
 /* ============================================================ */
 
 const H = {apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'Content-Type':'application/json'};
@@ -145,6 +145,11 @@ async function sbPatch(table, q, patch){
   const r=await fetch(`${SB_URL}/rest/v1/${table}?${q}`,{method:'PATCH',
     headers:{...H, Prefer:'return=minimal'}, body:JSON.stringify(patch)});
   if(!r.ok) throw new Error('PATCH '+table+' '+r.status);
+  return true;
+}
+async function sbDelete(table, q){
+  const r=await fetch(`${SB_URL}/rest/v1/${table}?${q}`,{method:'DELETE',headers:{...H, Prefer:'return=minimal'}});
+  if(!r.ok) throw new Error('DELETE '+table+' '+r.status);
   return true;
 }
 
@@ -289,40 +294,62 @@ function openModal(html){$('#modalBody').innerHTML=html;$('#modal').classList.ad
 function closeModal(){$('#modal').classList.remove('show');}
 
 /* ============================ HOME / SALAS ============================ */
-function goHome(){SALA=null;ME=null;IS_ADMIN=false;$('#salaChip').style.display='none';renderHome();}
-function renderHome(){
+function goHome(){SALA=null;ME=null;$('#salaChip').style.display='none';renderHome();}  // conserva si eres admin
+function exitAdmin(){IS_ADMIN=false;goHome();}
+function renderHome(){ IS_ADMIN ? renderAdminHome() : renderJoinHome(); }
+
+function renderJoinHome(){  // usuarios normales: SOLO entrar con código
+  $('#screen').innerHTML=`
+    <div class="card" style="max-width:460px;margin:0 auto">
+      <h2 class="section">Entrar a la quiniela</h2>
+      <p class="muted small" style="margin-top:-8px">Pídele a quien organiza el <b>código de tu sala</b> y entra aquí.</p>
+      <label class="fld">Código de sala</label>
+      <input id="joinCode" placeholder="Ej. 7KQ2P" style="text-transform:uppercase">
+      <div style="height:12px"></div>
+      <button class="btn" onclick="joinByCode()">Entrar</button>
+      <div class="hr"></div>
+      <div class="row" style="justify-content:flex-end"><span class="chip alt" onclick="askAdmin()">🔐 Soy el admin</span></div>
+    </div>`;
+}
+function renderAdminHome(){  // admin: crear / entrar / eliminar salas
   const list = SALAS.length ? SALAS.map(s=>`
-    <div class="salacard" onclick="enterSala('${s.code}')">
+    <div class="salacard">
       <div style="font-size:22px">🏆</div>
       <div style="flex:1"><div style="font-weight:700">${escapeHtml(s.name)}</div><div class="code">SALA ${s.code}</div></div>
-      <div class="muted small">entrar →</div></div>`).join('') : `<div class="muted small">Aún no hay salas. Crea la primera 👇</div>`;
+      <button class="btn ghost sm" onclick="enterSala('${s.code}')">Entrar</button>
+      <button class="btn pink sm" onclick="askDeleteSala('${s.code}',\`${escapeHtml(s.name)}\`)">Eliminar</button>
+    </div>`).join('') : `<div class="muted small">Aún no hay salas. Crea la primera 👇</div>`;
   $('#screen').innerHTML=`
     <div class="grid" style="grid-template-columns:1fr;gap:16px">
       <div class="card">
-        <h2 class="section">Tus salas</h2>
-        <p class="muted small" style="margin-top:-8px">Cada sala es una quiniela independiente (familia, oficina…). Todas comparten el calendario y los resultados, pero su propia tabla.</p>
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 class="section" style="margin:0">Salas</h2><span class="pill done">ADMIN</span></div>
+        <p class="muted small">Solo tú puedes crear o eliminar salas. Comparte el <b>código</b> por WhatsApp y los demás entran con él.</p>
         <div class="grid" style="grid-template-columns:1fr;gap:10px;margin-top:6px">${list}</div>
       </div>
-      <div class="row" style="gap:16px">
-        <div class="card" style="flex:1;min-width:260px">
-          <h2 class="section">Crear sala</h2>
-          <label class="fld">Nombre</label><input id="newSalaName" placeholder="Ej. Quiniela de la familia">
-          <div style="height:12px"></div><button class="btn" onclick="createSala()">Crear sala</button>
-        </div>
-        <div class="card" style="flex:1;min-width:260px">
-          <h2 class="section">Entrar con código</h2>
-          <label class="fld">Código</label><input id="joinCode" placeholder="Ej. 7KQ2P" style="text-transform:uppercase">
-          <div style="height:12px"></div><button class="btn ghost" onclick="joinByCode()">Entrar</button>
-        </div>
+      <div class="card">
+        <h2 class="section">Crear sala</h2>
+        <label class="fld">Nombre</label><input id="newSalaName" placeholder="Ej. Quiniela de la familia">
+        <div style="height:12px"></div><button class="btn" onclick="createSala()">Crear sala</button>
       </div>
-      <div class="banner">💡 <b>Para compartir:</b> manda el enlace de esta página + el <b>código de la sala</b> por WhatsApp. Quien lo abra elige la sala, pone su nombre y a pronosticar. Todo se guarda solo.</div>
+      <div class="row" style="justify-content:flex-end"><span class="chip alt" onclick="exitAdmin()">Salir de admin</span></div>
     </div>`;
 }
 async function createSala(){
   const name=$('#newSalaName').value.trim(); if(!name){toast('Ponle nombre a la sala');return;}
   const code=genCode();
-  try{ await sbUpsert('salas',{code,name}); SALAS.push({code,name}); toast('Sala creada: '+code); enterSala(code); }
+  try{ await sbUpsert('salas',{code,name}); SALAS.push({code,name}); toast('Sala creada: '+code); renderHome(); }
   catch(e){ toast('Error al crear la sala'); console.error(e); }
+}
+function askDeleteSala(code,name){
+  openModal(`<h2 class="section">Eliminar sala</h2>
+    <p class="small">¿Eliminar <b>${escapeHtml(name)}</b> (${code})? Se borran sus participantes y pronósticos. No se puede deshacer.</p>
+    <button class="btn pink" onclick="deleteSala('${code}')">Sí, eliminar</button>
+    <button class="btn ghost" style="margin-left:8px" onclick="closeModal()">Cancelar</button>`);
+}
+async function deleteSala(code){
+  try{ await sbDelete('salas',`code=eq.${code}`); SALAS=SALAS.filter(s=>s.code!==code); closeModal(); toast('Sala eliminada'); renderHome(); }
+  catch(e){ toast('Error al eliminar'); console.error(e); }
 }
 async function joinByCode(){
   const code=$('#joinCode').value.trim().toUpperCase(); if(!code)return;
@@ -354,8 +381,7 @@ function pickParticipant(){
         <button class="btn" onclick="addMe()">Unirme</button></div>
       <div class="hr"></div>
       <div class="row" style="justify-content:space-between;align-items:center">
-        <span class="muted tiny">${SALA.participants.length} participante(s)</span>
-        <span class="chip alt" onclick="askAdmin()">🔐 Modo admin</span></div>
+        <span class="muted tiny">${SALA.participants.length} participante(s)</span></div>
     </div>`;
 }
 async function addMe(){
@@ -389,12 +415,12 @@ function askAdmin(){
 async function saveAdminPin(){
   const p=$('#pinNew').value.trim(); if(p.length<3){toast('PIN muy corto');return;}
   try{ await sbPatch('meta','id=eq.1',{admin_pin:p}); META.admin_pin=p; IS_ADMIN=true; closeModal();
-    toast('Admin activo'); if(ME){TAB='admin';renderSala();}else{pickParticipant();} }
+    toast('Admin activo'); if(SALA&&ME){TAB='admin';renderSala();}else{renderHome();} }
   catch(e){ toast('Error al guardar PIN'); console.error(e); }
 }
 function tryAdmin(){
   if($('#pinTry').value.trim()===META.admin_pin){IS_ADMIN=true;closeModal();toast('Admin activo');
-    if(ME){TAB='admin';renderSala();}else{pickParticipant();}}
+    if(SALA&&ME){TAB='admin';renderSala();}else{renderHome();}}
   else toast('PIN incorrecto');
 }
 
@@ -427,17 +453,16 @@ function renderPredictions(kind){
   const body=$('#tabbody');
   const list = kind==='grupos'? MATCHES.filter(m=>m.phase==='grupos') : knockoutMatches();
   if(kind==='final' && list.length===0){ body.innerHTML=`<div class="card"><p class="muted">La ronda final se habilita cuando el admin cierre la fase de grupos. Aquí aparecerán los clasificados, fechas y cruces.</p></div>`; return; }
-  body.innerHTML=`<div class="legend" style="margin-bottom:10px">
-    <span><b style="color:var(--L)">L</b> Local</span><span><b style="color:var(--E)">E</b> Empate</span><span><b style="color:var(--V)">V</b> Visita</span>
-    <span class="muted">· se bloquea al iniciar el partido · 1 pt por acierto</span></div><div id="mlist"></div>`;
+  body.innerHTML=`<div class="legend" style="margin-bottom:4px">
+      <span><b style="color:var(--L)">L</b> Local</span><span><b style="color:var(--E)">E</b> Empate</span><span><b style="color:var(--V)">V</b> Visita</span></div>
+    <div class="tiny muted" style="margin:0 2px 12px">Toca para elegir; toca de nuevo para quitar. Se guarda solo y se bloquea al iniciar el partido · 1 pt por acierto.</div>
+    <div id="mlist"></div>`;
   const cont=$('#mlist');
   if(kind==='grupos'){
-    Object.keys(GROUPS).forEach(g=>{ const gm=list.filter(m=>m.group===g);
-      cont.appendChild(el(`<div class="grp-h">Grupo ${g}</div>`));
-      gm.sort((a,b)=>new Date(a.kickoff)-new Date(b.kickoff)).forEach(m=>cont.appendChild(matchCard(m))); });
+    list.slice().sort((a,b)=>new Date(a.kickoff)-new Date(b.kickoff)).forEach(m=>cont.appendChild(matchCard(m)));
   }else{
     [['16avos','Dieciseisavos'],['8vos','Octavos'],['4tos','Cuartos'],['semi','Semifinales'],['3er','Tercer lugar'],['final','Final']].forEach(([ph,lbl])=>{
-      const rm=list.filter(m=>m.phase===ph); if(rm.length){cont.appendChild(el(`<div class="grp-h">${lbl}</div>`));rm.forEach(m=>cont.appendChild(matchCard(m)));} });
+      const rm=list.filter(m=>m.phase===ph); if(rm.length){cont.appendChild(el(`<div class="grp-h">${lbl}</div>`));rm.slice().sort((a,b)=>new Date(a.kickoff)-new Date(b.kickoff)).forEach(m=>cont.appendChild(matchCard(m)));} });
   }
 }
 function matchCard(m){
@@ -459,7 +484,7 @@ function matchCard(m){
   opts.forEach(([k,lbl,ic])=>{
     const sel=my===k, correct=m.outcome&&m.status==='final'&&m.outcome===k;
     const p=el(`<div class="pick ${sel?'sel':''} ${locked?'locked':''} ${correct?'win':''}" data-k="${k}"><span>${ic||''} ${ko?escapeHtml(lbl):lbl}</span>${ko?'':`<small>${k==='L'?'gana local':k==='E'?'empate':'gana visita'}</small>`}</div>`);
-    if(!locked) p.onclick=()=>setPick(m.id,k);
+    if(!locked) p.onclick=()=>togglePick(m.id,k);
     picks.appendChild(p);
   });
   node.appendChild(picks);
@@ -468,12 +493,15 @@ function matchCard(m){
   return node;
 }
 function pickLabel(m,k){ if(m.phase!=='grupos') return k==='L'?m.home:m.away; return k==='L'?'Local':k==='E'?'Empate':'Visita'; }
-async function setPick(mid,k){
-  PRED[mid]=k;
+async function togglePick(mid,k){
+  const removing = PRED[mid]===k;       // segundo toque al mismo = quitar
+  if(removing) delete PRED[mid]; else PRED[mid]=k;
   const old=document.querySelector(`.match[data-id="${mid}"]`);
   const m=MATCHES.find(x=>x.id===mid); if(old) old.replaceWith(matchCard(m));
-  try{ await sbUpsert('predictions',{sala_code:SALA.code,participant_id:ME.id,match_id:mid,pick:k}); }
-  catch(e){ toast('No se pudo guardar, revisa tu conexión'); console.error(e); }
+  try{
+    if(removing) await sbDelete('predictions',`participant_id=eq.${ME.id}&match_id=eq.${mid}`);
+    else await sbUpsert('predictions',{sala_code:SALA.code,participant_id:ME.id,match_id:mid,pick:k});
+  }catch(e){ toast('No se pudo guardar, revisa tu conexión'); console.error(e); }
 }
 
 /* ---------- TABLA ---------- */
