@@ -257,7 +257,7 @@ function groupMatches(){
 /* ============================ ESTADO ============================ */
 let META={phase:'grupos',groups_closed:false,knockout:[],kickoffs:{},admin_pin:null};
 let MATCHES=[], RESULTS={};
-let SALAS=[], SALA=null, ME=null, IS_ADMIN=false, TAB='pron';
+let SALAS=[], SALA=null, ME=null, IS_ADMIN=false, TAB='pron', ADMIN_SALA=null;
 let PRED={}, ALLPRED={};
 
 function pad(n){return String(n).padStart(2,'0');}
@@ -311,20 +311,25 @@ function renderJoinHome(){  // usuarios normales: SOLO entrar con código
       <div class="row" style="justify-content:flex-end"><span class="chip alt" onclick="askAdmin()">🔐 Soy el admin</span></div>
     </div>`;
 }
-function renderAdminHome(){  // admin: crear / entrar / eliminar salas
+function renderAdminHome(){  // panel de admin
   const list = SALAS.length ? SALAS.map(s=>`
     <div class="salacard">
       <div style="font-size:22px">🏆</div>
       <div style="flex:1"><div style="font-weight:700">${escapeHtml(s.name)}</div><div class="code">SALA ${s.code}</div></div>
-      <button class="btn ghost sm" onclick="enterSala('${s.code}')">Entrar</button>
+      <button class="btn ghost sm" onclick="adminManageSala('${s.code}')">Gestionar</button>
       <button class="btn pink sm" onclick="askDeleteSala('${s.code}',\`${escapeHtml(s.name)}\`)">Eliminar</button>
     </div>`).join('') : `<div class="muted small">Aún no hay salas. Crea la primera 👇</div>`;
   $('#screen').innerHTML=`
     <div class="grid" style="grid-template-columns:1fr;gap:16px">
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center">
-          <h2 class="section" style="margin:0">Salas</h2><span class="pill done">ADMIN</span></div>
-        <p class="muted small">Solo tú puedes crear o eliminar salas. Comparte el <b>código</b> por WhatsApp y los demás entran con él.</p>
+          <h2 class="section" style="margin:0">Panel de admin</h2><span class="pill done">ADMIN</span></div>
+        <p class="muted small">Captura los resultados del torneo (valen para todas las salas) y administra salas y participantes.</p>
+        <button class="btn gold" onclick="renderAdminResults()">⚽ Resultados por partido</button>
+      </div>
+      <div class="card">
+        <h2 class="section">Salas</h2>
+        <p class="muted small" style="margin-top:-8px">Comparte el <b>código</b> por WhatsApp. En <b>Gestionar</b> editas o eliminas participantes y sus PIN.</p>
         <div class="grid" style="grid-template-columns:1fr;gap:10px;margin-top:6px">${list}</div>
       </div>
       <div class="card">
@@ -334,6 +339,53 @@ function renderAdminHome(){  // admin: crear / entrar / eliminar salas
       </div>
       <div class="row" style="justify-content:flex-end"><span class="chip alt" onclick="exitAdmin()">Salir de admin</span></div>
     </div>`;
+}
+/* --- gestión de participantes de una sala (admin) --- */
+async function adminManageSala(code){
+  const s=SALAS.find(x=>x.code===code);
+  const parts=await sbSel('participants',`sala_code=eq.${code}&select=id,name,pin&order=created_at.asc`);
+  ADMIN_SALA={code, name:s?s.name:code, participants:parts};
+  renderAdminSalaManage();
+}
+function renderAdminSalaManage(){
+  const s=ADMIN_SALA;
+  const rows=s.participants.map(p=>`
+    <div class="match">
+      <div class="row" style="align-items:center;gap:8px;flex-wrap:nowrap">
+        <input id="nm-${p.id}" value="${escapeHtml(p.name)}" placeholder="Nombre" style="flex:1;min-width:90px">
+        <input id="pn-${p.id}" value="${p.pin||''}" maxlength="4" inputmode="numeric" placeholder="PIN" style="width:80px">
+        <button class="btn sm" onclick="saveParticipant('${p.id}')">Guardar</button>
+        <button class="btn pink sm" onclick="askDeleteParticipant('${p.id}',\`${escapeHtml(p.name)}\`)">✕</button>
+      </div></div>`).join('') || `<div class="muted small">Sin participantes todavía.</div>`;
+  $('#screen').innerHTML=`
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div><span class="code" style="font-family:'Anton';color:var(--gold);font-size:13px">SALA ${s.code}</span>
+        <span class="muted small"> · ${escapeHtml(s.name)}</span></div>
+      <span class="chip alt" onclick="renderHome()">↩ Volver al panel</span></div>
+    <div class="card" style="margin-top:12px">
+      <h2 class="section">Participantes</h2>
+      <p class="muted small" style="margin-top:-8px">Edita el nombre o el PIN (útil si alguien lo olvidó), o elimina a quien quieras. Deja el PIN vacío para quitárselo.</p>
+      <div class="grid" style="gap:8px">${rows}</div>
+    </div>`;
+}
+async function saveParticipant(id){
+  const name=$('#nm-'+id).value.trim(), pin=$('#pn-'+id).value.trim();
+  if(!name){toast('El nombre no puede ir vacío');return;}
+  if(pin && !/^\d{4}$/.test(pin)){toast('PIN de 4 dígitos (o vacío)');return;}
+  try{ await sbPatch('participants',`id=eq.${id}`,{name,pin:pin||null});
+    const p=ADMIN_SALA.participants.find(x=>x.id===id); if(p){p.name=name;p.pin=pin||null;} toast('Guardado ✓'); }
+  catch(e){ toast('Error al guardar'); console.error(e); }
+}
+function askDeleteParticipant(id,name){
+  openModal(`<h2 class="section">Eliminar participante</h2>
+    <p class="small">¿Eliminar a <b>${escapeHtml(name)}</b>? Se borran sus pronósticos. No se puede deshacer.</p>
+    <button class="btn pink" onclick="doDeleteParticipant('${id}')">Sí, eliminar</button>
+    <button class="btn ghost" style="margin-left:8px" onclick="closeModal()">Cancelar</button>`);
+}
+async function doDeleteParticipant(id){
+  try{ await sbDelete('participants',`id=eq.${id}`);
+    ADMIN_SALA.participants=ADMIN_SALA.participants.filter(x=>x.id!==id); closeModal(); toast('Participante eliminado'); renderAdminSalaManage(); }
+  catch(e){ toast('Error al eliminar'); console.error(e); }
 }
 async function createSala(){
   const name=$('#newSalaName').value.trim(); if(!name){toast('Ponle nombre a la sala');return;}
@@ -434,12 +486,12 @@ function askAdmin(){
 async function saveAdminPin(){
   const p=$('#pinNew').value.trim(); if(p.length<3){toast('PIN muy corto');return;}
   try{ await sbPatch('meta','id=eq.1',{admin_pin:p}); META.admin_pin=p; IS_ADMIN=true; closeModal();
-    toast('Admin activo'); if(SALA&&ME){TAB='admin';renderSala();}else{renderHome();} }
+    toast('Admin activo'); SALA=null; ME=null; $('#salaChip').style.display='none'; renderHome(); }
   catch(e){ toast('Error al guardar PIN'); console.error(e); }
 }
 function tryAdmin(){
   if($('#pinTry').value.trim()===META.admin_pin){IS_ADMIN=true;closeModal();toast('Admin activo');
-    if(SALA&&ME){TAB='admin';renderSala();}else{renderHome();}}
+    SALA=null; ME=null; $('#salaChip').style.display='none'; renderHome();}
   else toast('PIN incorrecto');
 }
 
@@ -447,7 +499,6 @@ function tryAdmin(){
 function renderSala(){
   const tabs=[['pron','Pronosticar'],['tabla','Tabla'],['grupos','Posiciones']];
   if(META.phase==='eliminatoria') tabs.splice(1,0,['final','Ronda final']);
-  if(IS_ADMIN) tabs.push(['admin','⚙ Admin']);
   const tabHtml=tabs.map(([k,l])=>`<div class="tab ${TAB===k?'on':''}" onclick="setTab('${k}')">${l}</div>`).join('');
   $('#screen').innerHTML=`
     <div class="row" style="justify-content:space-between;align-items:center">
@@ -464,7 +515,6 @@ function renderTab(){
   else if(TAB==='final') renderPredictions('final');
   else if(TAB==='tabla') renderLeaderboard();
   else if(TAB==='grupos') renderGroupTables();
-  else if(TAB==='admin') renderAdmin();
 }
 
 /* ---------- PRONÓSTICOS ---------- */
@@ -570,20 +620,18 @@ function renderGroupTables(){
       </tbody></table><div class="tiny muted" style="margin-top:6px">Verde = 1° y 2° (clasificación directa)</div></div>`)); });
 }
 
-/* ---------- ADMIN PANEL ---------- */
-function renderAdmin(){
-  const body=$('#tabbody'); const grupos=META.phase==='grupos';
-  body.innerHTML=`
-    <div class="card" style="margin-bottom:14px">
-      <h2 class="section">Resultados</h2>
-      <p class="muted small" style="margin-top:-8px">Captura el marcador de cada partido jugado. Al guardar, la tabla y las posiciones se actualizan solas para todos.</p>
+/* ---------- RESULTADOS (admin, global) ---------- */
+function renderAdminResults(){
+  const grupos=META.phase==='grupos';
+  $('#screen').innerHTML=`
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h2 class="section" style="margin:0">Resultados por partido</h2>
+      <span class="chip alt" onclick="renderHome()">↩ Volver al panel</span></div>
+    <div class="card" style="margin-top:12px">
+      <p class="muted small" style="margin-top:0">Captura el marcador de cada partido jugado. Al guardar, la tabla y las posiciones se actualizan solas para todas las salas.</p>
       ${grupos?`<button class="btn sm pink" onclick="confirmCloseGroups()">🔒 Cerrar fase de grupos → armar ronda final</button>`:''}
       <div id="adminList" style="margin-top:12px"></div>
-    </div>
-    <div class="card"><h2 class="section">Sala</h2>
-      <div class="row" style="align-items:center;justify-content:space-between">
-        <span class="muted small">${SALA.participants.length} participante(s) en <b>${escapeHtml(SALA.name)}</b></span>
-        <button class="btn ghost sm" onclick="goHome()">Ir a otra sala</button></div></div>`;
+    </div>`;
   const cont=$('#adminList');
   const list= grupos? MATCHES.filter(m=>m.phase==='grupos') : knockoutMatches();
   list.slice().sort((a,b)=> (a.status==='final')-(b.status==='final') || new Date(a.kickoff)-new Date(b.kickoff)).forEach(m=>cont.appendChild(adminRow(m)));
@@ -613,7 +661,7 @@ async function saveResult(mid){
   if(m.phase!=='grupos'&&hg===ag){toast('En eliminatoria no hay empate: define quién avanzó');return;}
   const outcome=computeOutcome(m,hg,ag);
   try{ await sbUpsert('results',{match_id:mid,hg,ag,outcome,status:'final'});
-    RESULTS[mid]={hg,ag,outcome,status:'final'}; buildMatches(); toast('Resultado guardado'); renderAdmin(); }
+    RESULTS[mid]={hg,ag,outcome,status:'final'}; buildMatches(); toast('Resultado guardado'); renderAdminResults(); }
   catch(e){ toast('Error al guardar'); console.error(e); }
 }
 async function saveKick(mid){
@@ -644,7 +692,7 @@ async function closeGroups(){
       home:a.name,away:b.name,kickoff:'2026-06-'+pad(28+Math.floor(i/2/3))+'T13:00:00-06:00',venue:''}); }
   META.knockout=r32; META.phase='eliminatoria'; META.groups_closed=true;
   try{ await sbPatch('meta','id=eq.1',{knockout:r32,phase:'eliminatoria',groups_closed:true});
-    buildMatches(); closeModal(); toast('¡Ronda final armada! Revisa los cruces oficiales.'); TAB='admin'; renderSala(); }
+    buildMatches(); closeModal(); toast('¡Ronda final armada! Revisa los cruces oficiales.'); renderAdminResults(); }
   catch(e){ toast('Error al cerrar grupos'); console.error(e); }
 }
 
